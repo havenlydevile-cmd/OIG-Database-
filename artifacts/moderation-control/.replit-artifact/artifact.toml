@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Inspector General Moderation Console"
+description = "A secure moderation control panel for configuring Discord case workflows, issuing punishments, processing appeals, reviewing transcripts, and auditing cross-server case logs."
+version = "1.0.0"
+id = "artifacts/moderation-control"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19365
+
+[services.development]
+run = "pnpm --filter @workspace/moderation-control run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/moderation-control", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/moderation-control/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19365"
+BASE_PATH = "/"

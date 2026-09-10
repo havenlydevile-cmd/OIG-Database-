@@ -1,0 +1,1 @@
+- [Discord moderation access](discord-moderation-access.md) — privileged server actions require the bot token; the connected Discord OAuth is identity-level and cannot manage channels or roles.

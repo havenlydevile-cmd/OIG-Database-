@@ -1,0 +1,421 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: dashboard
+    description: Moderation overview
+  - name: settings
+    description: Discord and moderation configuration
+  - name: punishments
+    description: Punishment records and enforcement
+  - name: appeals
+    description: Appeal records and decisions
+  - name: tickets
+    description: Discord ticket records and transcripts
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get moderation dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get moderation configuration
+      responses:
+        "200":
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationSettings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update moderation configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModerationSettingsInput"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationSettings"
+  /punishments:
+    get:
+      operationId: listPunishments
+      tags: [punishments]
+      summary: List punishment records
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Punishment records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PunishmentRecord"
+    post:
+      operationId: createPunishment
+      tags: [punishments]
+      summary: Create a punishment record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PunishmentInput"
+      responses:
+        "201":
+          description: Created punishment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PunishmentRecord"
+  /punishments/by-user/{userId}:
+    get:
+      operationId: getPunishmentsByUser
+      tags: [punishments]
+      summary: View every punishment for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: User punishment history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PunishmentRecord"
+  /punishments/{id}/execute:
+    post:
+      operationId: executePunishment
+      tags: [punishments]
+      summary: Publish a punishment, manage roles, transcript, and DM
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecutePunishmentInput"
+      responses:
+        "200":
+          description: Executed punishment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PunishmentRecord"
+  /appeals:
+    get:
+      operationId: listAppeals
+      tags: [appeals]
+      summary: List appeal records
+      responses:
+        "200":
+          description: Appeal records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppealRecord"
+    post:
+      operationId: createAppeal
+      tags: [appeals]
+      summary: Create an appeal record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppealInput"
+      responses:
+        "201":
+          description: Created appeal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppealRecord"
+  /appeals/{id}/decide:
+    post:
+      operationId: decideAppeal
+      tags: [appeals]
+      summary: Accept or deny an appeal and log the result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppealDecisionInput"
+      responses:
+        "200":
+          description: Decided appeal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppealRecord"
+  /tickets:
+    get:
+      operationId: listTickets
+      tags: [tickets]
+      summary: List recent Discord tickets
+      responses:
+        "200":
+          description: Ticket records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketRecord"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    DashboardSummary:
+      type: object
+      required: [openTickets, pendingAppeals, punishmentsThisMonth, activeSuspensions, recentCases]
+      properties:
+        openTickets: { type: integer }
+        pendingAppeals: { type: integer }
+        punishmentsThisMonth: { type: integer }
+        activeSuspensions: { type: integer }
+        recentCases:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunishmentRecord"
+    PunishmentType:
+      type: string
+      enum: [vw, strike_1, strike_2, disciplinary_1, disciplinary_2, blacklist, exile, suspension_3, suspension_7, suspension_14]
+    PunishmentRecord:
+      type: object
+      required: [id, suspectUsername, suspectUserId, offense, verdict, approver, status, createdAt, punishments]
+      properties:
+        id: { type: string, format: uuid }
+        suspectUsername: { type: string }
+        suspectUserId: { type: string }
+        offense: { type: string }
+        verdict: { type: string }
+        approver: { type: string }
+        attendees:
+          type: array
+          items: { type: string }
+        punishments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunishmentType"
+        proof:
+          type: array
+          items: { type: string }
+        transcriptUrl: { type: ["string", "null"], format: uri }
+        punishmentMessageUrl: { type: ["string", "null"], format: uri }
+        status: { type: string, enum: [draft, executed, revoked] }
+        createdAt: { type: string, format: date-time }
+    PunishmentInput:
+      type: object
+      required: [suspectUsername, suspectUserId, offense, verdict, approver, punishments]
+      properties:
+        suspectUsername: { type: string, minLength: 1 }
+        suspectUserId: { type: string, minLength: 1 }
+        offense: { type: string, minLength: 1 }
+        verdict: { type: string, minLength: 1 }
+        approver: { type: string, minLength: 1 }
+        attendees:
+          type: array
+          items: { type: string }
+        punishments:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/PunishmentType"
+        proof:
+          type: array
+          items: { type: string }
+        transcriptUrl: { type: string, format: uri }
+    ExecutePunishmentInput:
+      type: object
+      required: [ticketChannelId]
+      properties:
+        ticketChannelId: { type: string, minLength: 1 }
+        loggedBy: { type: string }
+        caseLogRoleId: { type: string }
+        additionalPingRoleIds:
+          type: array
+          items: { type: string }
+    AppealRecord:
+      type: object
+      required: [id, appellantUsername, appellantUserId, punishment, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        appellantUsername: { type: string }
+        appellantUserId: { type: string }
+        punishment: { $ref: "#/components/schemas/PunishmentType" }
+        reason: { type: string }
+        status: { type: string, enum: [pending, accepted, denied] }
+        approver: { type: ["string", "null"] }
+        transcriptUrl: { type: ["string", "null"], format: uri }
+        createdAt: { type: string, format: date-time }
+    AppealInput:
+      type: object
+      required: [appellantUsername, appellantUserId, punishment, reason]
+      properties:
+        appellantUsername: { type: string, minLength: 1 }
+        appellantUserId: { type: string, minLength: 1 }
+        punishment:
+          $ref: "#/components/schemas/PunishmentType"
+        reason: { type: string, minLength: 1 }
+    AppealDecisionInput:
+      type: object
+      required: [status, approver, ticketChannelId]
+      properties:
+        status: { type: string, enum: [accepted, denied] }
+        approver: { type: string, minLength: 1 }
+        ticketChannelId: { type: string, minLength: 1 }
+        pingRoleId: { type: string }
+    TicketRecord:
+      type: object
+      required: [id, channelId, type, openedBy, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        channelId: { type: string }
+        type: { type: string, enum: [e1_05_report, e6_plus_report, appeal] }
+        openedBy: { type: string }
+        openedByUserId: { type: string }
+        status: { type: string, enum: [open, closed] }
+        transcriptUrl: { type: ["string", "null"], format: uri }
+        createdAt: { type: string, format: date-time }
+    ModerationSettings:
+      type: object
+      required: [punishments, ticketTypes, channels, rolePings]
+      properties:
+        guildId: { type: ["string", "null"] }
+        logGuildId: { type: ["string", "null"] }
+        punishments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunishmentDefinition"
+        ticketTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketTypeDefinition"
+        channels:
+          $ref: "#/components/schemas/ChannelSettings"
+        rolePings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RolePingDefinition"
+    ModerationSettingsInput:
+      type: object
+      properties:
+        guildId: { type: string }
+        logGuildId: { type: string }
+        punishments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PunishmentDefinition"
+        ticketTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketTypeDefinition"
+        channels:
+          $ref: "#/components/schemas/ChannelSettings"
+        rolePings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RolePingDefinition"
+    PunishmentDefinition:
+      type: object
+      required: [type, label, requiresRole, requiresDM]
+      properties:
+        type:
+          $ref: "#/components/schemas/PunishmentType"
+        label: { type: string }
+        requiresRole: { type: boolean }
+        roleId: { type: ["string", "null"] }
+        requiresDM: { type: boolean }
+        active: { type: boolean }
+    TicketTypeDefinition:
+      type: object
+      required: [type, label, categoryChannelId, pingRoleId]
+      properties:
+        type: { type: string }
+        label: { type: string }
+        categoryChannelId: { type: string }
+        pingRoleId: { type: string }
+    ChannelSettings:
+      type: object
+      required: [punishment, blacklist, exile, appealedPunishment, caseLog]
+      properties:
+        punishment: { type: string }
+        blacklist: { type: string }
+        exile: { type: string }
+        appealedPunishment: { type: string }
+        caseLog: { type: string }
+    RolePingDefinition:
+      type: object
+      required: [key, label, roleId]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        roleId: { type: string }
+
