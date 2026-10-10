@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { antiRaidGuard } from "./middlewares/antiRaidGuard";
 
 const app: Express = express();
 
@@ -28,6 +29,10 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+if (process.env.ENABLE_ANTI_RAID !== "false") {
+  app.use(antiRaidGuard());
+}
 
 app.use("/api", router);
 
