@@ -30,9 +30,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-if (process.env.ENABLE_ANTI_RAID !== "false") {
-  app.use(antiRaidGuard());
-}
+// Anti-raid guard active by default
+app.use(antiRaidGuard());
 
 app.use("/api", router);
 
