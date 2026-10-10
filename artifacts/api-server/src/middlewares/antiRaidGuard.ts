@@ -2,7 +2,7 @@ import type { RequestHandler } from "express";
 import { db, banRecordsTable } from "@workspace/db";
 import { getDiscordClient, banUserEverywhere, sendMessage } from "../services/discord";
 import { logger } from "../lib/logger";
-import { EmbedBuilder } from "discord.js";
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type Interaction } from "discord.js";
 
 interface RaidPattern {
   name: string;
@@ -20,6 +20,7 @@ const RAID_PATTERNS: RaidPattern[] = [
 
 const REQUEST_TRACKING = new Map<string, { count: number; timestamp: number }>();
 const SLASH_COMMAND_TRACKING = new Map<string, number[]>();
+const ANTI_RAID_INCIDENTS = new Map<string, { userId: string; banRecord: any; timestamp: number }>();
 const FLOOD_THRESHOLD = 18; // requests
 const FLOOD_WINDOW = 5000; // 5 seconds in ms
 const SLASH_COMMAND_THRESHOLD = 2; // slash commands
@@ -76,6 +77,32 @@ async function detectRaidActivity(req: any): Promise<{ triggered: boolean; reaso
   return { triggered: false };
 }
 
+async function unbanUser(userId: string) {
+  try {
+    const discordClient = getDiscordClient();
+    if (!discordClient) {
+      logger.error("Discord client not available for unban");
+      return;
+    }
+
+    // Remove bans from all Discord servers
+    for (const guild of discordClient.guilds.cache.values()) {
+      try {
+        await guild.bans.remove(userId, "[ANTI-RAID APPEAL] Ban reversed by developer review");
+        logger.info({ userId, guildId: guild.id }, "User unbanned from guild");
+      } catch (error) {
+        logger.warn({ userId, guildId: guild.id, err: error }, "Could not unban user from guild");
+      }
+    }
+
+    // Remove the ban record from database
+    await db.delete(banRecordsTable).where({ userId });
+    logger.info({ userId }, "Ban record deleted");
+  } catch (error) {
+    logger.error({ err: error, userId }, "Failed to unban user");
+  }
+}
+
 async function executeGlobalBan(userId: string, ipAddress: string, reason: string, developerChannelId?: string, developerRoleId?: string) {
   try {
     logger.info({ userId, ip: ipAddress, reason }, "Executing global anti-raid ban");
@@ -91,7 +118,7 @@ async function executeGlobalBan(userId: string, ipAddress: string, reason: strin
     const successCount = banResults.filter((r) => r.success).length;
 
     // Log ban to ban_records table
-    await db.insert(banRecordsTable).values({
+    const [banRecord] = await db.insert(banRecordsTable).values({
       userId,
       username: `antiraid-${userId}`,
       reason: `[ANTI-RAID SYSTEM] ${reason}`,
@@ -100,32 +127,104 @@ async function executeGlobalBan(userId: string, ipAddress: string, reason: strin
       guildIds: banResults.map((r) => r.guildId),
       executedBy: "ANTI_RAID_SYSTEM",
       caseLogMessageUrl: null,
-    });
+    }).returning();
 
-    // Send developer review notification
+    // Store incident for tracking
+    const incidentId = `antiraid-${userId}-${Date.now()}`;
+    ANTI_RAID_INCIDENTS.set(incidentId, { userId, banRecord, timestamp: Date.now() });
+
+    // Send developer review notification with interactive buttons
     if (developerChannelId) {
       const embed = new EmbedBuilder()
         .setColor("#FF0000")
         .setTitle("🚨 Anti-Raid System Triggered")
-        .setDescription(`A user has been automatically banned due to suspected database raid activity.`)
+        .setDescription(`A user has been automatically banned due to suspected database raid activity. Please review and take action.`)
         .addFields(
           { name: "User ID", value: userId, inline: true },
           { name: "IP Address", value: ipAddress, inline: true },
           { name: "Trigger Reason", value: reason, inline: false },
           { name: "Servers Banned", value: `${successCount} server(s)`, inline: true },
-          { name: "Status", value: "✅ Automatically Executed", inline: true },
-          { name: "Timestamp", value: new Date().toISOString(), inline: false }
+          { name: "Status", value: "⏳ Awaiting Developer Review", inline: true },
+          { name: "Timestamp", value: new Date().toISOString(), inline: false },
+          { name: "Incident ID", value: incidentId, inline: false }
         )
         .setTimestamp();
 
+      const buttons = new ActionRowBuilder<ButtonBuilder>()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`antiraid:appeal:${incidentId}`)
+            .setLabel("Appeal Ban")
+            .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId(`antiraid:verify:${incidentId}`)
+            .setLabel("Verify Verdict")
+            .setStyle(ButtonStyle.Success)
+        );
+
       const mention = developerRoleId ? `<@&${developerRoleId}> ` : "";
-      await sendMessage(developerChannelId, `${mention}**Anti-Raid Alert**`, embed);
+      const channel = await discordClient.channels.fetch(developerChannelId);
+      if (channel && channel.isTextBased()) {
+        await (channel as any).send({
+          content: `${mention}**Anti-Raid Alert**`,
+          embeds: [embed],
+          components: [buttons],
+        });
+      }
     }
 
-    logger.info({ userId, bannedServers: successCount }, "Global ban executed and developers notified");
+    logger.info({ userId, bannedServers: successCount, incidentId }, "Global ban executed and developers notified");
   } catch (error) {
     logger.error({ err: error }, "Failed to execute global ban or send notification");
   }
+}
+
+export function setupAntiRaidInteractionHandler() {
+  return async (interaction: Interaction) => {
+    if (!interaction.isButton()) return;
+
+    const customId = interaction.customId;
+    if (!customId.startsWith("antiraid:")) return;
+
+    const [, action, incidentId] = customId.split(":");
+
+    const incident = ANTI_RAID_INCIDENTS.get(incidentId);
+    if (!incident) {
+      await interaction.reply({ content: "Incident not found or expired.", ephemeral: true });
+      return;
+    }
+
+    const { userId } = incident;
+
+    if (action === "appeal") {
+      // Appeal: reverse all actions
+      try {
+        await unbanUser(userId);
+        await interaction.reply({
+          content: `✅ **Appeal Accepted** — User ${userId} has been unbanned and all bans have been reversed.`,
+          ephemeral: false,
+        });
+        logger.info({ userId, incidentId, developerId: interaction.user.id }, "Anti-raid ban appealed and reversed");
+        ANTI_RAID_INCIDENTS.delete(incidentId);
+      } catch (error) {
+        logger.error({ err: error, userId }, "Failed to process appeal");
+        await interaction.reply({ content: "Failed to process appeal.", ephemeral: true });
+      }
+    } else if (action === "verify") {
+      // Verify: keep all actions in place
+      try {
+        await interaction.reply({
+          content: `✅ **Verdict Verified** — User ${userId} remains globally banned. Ban is permanent unless appealed through the moderation system.`,
+          ephemeral: false,
+        });
+        logger.info({ userId, incidentId, developerId: interaction.user.id }, "Anti-raid ban verdict verified");
+        ANTI_RAID_INCIDENTS.delete(incidentId);
+      } catch (error) {
+        logger.error({ err: error, userId }, "Failed to verify verdict");
+        await interaction.reply({ content: "Failed to verify verdict.", ephemeral: true });
+      }
+    }
+  };
 }
 
 export function antiRaidGuard(): RequestHandler {
