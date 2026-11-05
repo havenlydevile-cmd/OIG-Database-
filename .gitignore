@@ -41,7 +41,10 @@ testem.log
 .DS_Store
 Thumbs.db
 
-# Ignore previous Replit-generated artifacts and caches
+# Replit generated files and local caches
+.replit/
+.replit-artifact/
+**/.replit-artifact/
 .cache/
 .local/
 project-backup.tar.gz
