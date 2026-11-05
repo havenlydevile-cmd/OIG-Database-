@@ -41,12 +41,7 @@ testem.log
 .DS_Store
 Thumbs.db
 
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
-
-# Replit
+# Ignore previous Replit-generated artifacts and caches
 .cache/
 .local/
-project-backup.tar.gz
-project-backup.tar.gz
 project-backup.tar.gz
