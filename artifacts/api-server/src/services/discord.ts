@@ -129,7 +129,7 @@ async function registerCommands(applicationId: string) {
       ),
     new SlashCommandBuilder()
       .setName("approve")
-      .setDescription("Approve a moderation case action")
+      .setDescription("Approve or update a moderation case verdict")
       .setDefaultMemberPermissions(moderatorPermissions)
       .addSubcommand((subcommand) =>
         subcommand
@@ -146,21 +146,6 @@ async function registerCommands(applicationId: string) {
       .setName("close")
       .setDescription("Close and archive the current moderation ticket")
       .setDefaultMemberPermissions(moderatorPermissions),
-    new SlashCommandBuilder()
-      .setName("transcript")
-      .setDescription("Manage the current case transcript")
-      .setDefaultMemberPermissions(moderatorPermissions)
-      .addSubcommand((subcommand) =>
-        subcommand
-          .setName("edit")
-          .setDescription("Edit the verdict saved on a case")
-          .addStringOption((option) =>
-            option.setName("case_id").setDescription("The case record UUID").setRequired(true),
-          )
-          .addStringOption((option) =>
-            option.setName("verdict").setDescription("The corrected formal verdict").setRequired(true),
-          ),
-      ),
     new SlashCommandBuilder()
       .setName("ban")
       .setDescription("Ban a member from this server and log the ban")
@@ -193,6 +178,7 @@ async function registerCommands(applicationId: string) {
           ),
       ),
   ].map((command) => command.toJSON());
+
   const rest = new REST({ version: "10" }).setToken(token);
   await rest.put(Routes.applicationCommands(applicationId), { body: commands });
 }
@@ -205,7 +191,7 @@ export async function fetchTicketTranscript(channelId: string) {
     .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
     .map(
       (message) =>
-        `[${new Date(message.createdTimestamp).toISOString()}] ${message.author.tag}: ${message.content}${message.attachments.size ? ` Attachments: ${[...message.attachments.values()].map((attachment) => attachment.url).join(", ")}` : ""}`,
+        `[${new Date(message.createdTimestamp).toISOString()}] ${message.author.tag}: ${message.content}${message.attachments.size ? ` Attachments: ${[...message.attachments.values()].map((attach) => attach.url).join(", ")}` : ""}`,
     )
     .join("\n");
 }
